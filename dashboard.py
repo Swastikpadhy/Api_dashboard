@@ -9,6 +9,8 @@ st.title('Tomcat API Log Dashboard')
 st.sidebar.header('Log Folder Selection')
 log_files = st.sidebar.file_uploader('Upload log files', type='log', accept_multiple_files=True)
 
+top_n = st.sidebar.selectbox('Show Top N APIs', options=[10, 20, 50], index=0)
+
 folder = None
 if log_files:
     import tempfile
@@ -68,18 +70,18 @@ if folder and st.button('Load Logs'):
         max_size = df.groupby('api')['response_size'].max().sort_values(ascending=False)
 
         st.subheader('Average API Response Time (ms)')
-        st.bar_chart(avg_time)
+        st.bar_chart(avg_time.head(top_n))
 
-        st.subheader('Top 10 APIs by Average Response Time')
-        st.dataframe(avg_time.head(10).reset_index().rename(columns={'response_time': 'avg_response_time_ms'}))
+        st.subheader(f'Top {top_n} APIs by Average Response Time')
+        st.dataframe(avg_time.head(top_n).reset_index().rename(columns={'response_time': 'avg_response_time_ms'}))
 
-        st.subheader('Top 10 APIs by Max Response Time')
-        st.dataframe(max_time.head(10).reset_index().rename(columns={'response_time': 'max_response_time_ms'}))
+        st.subheader(f'Top {top_n} APIs by Max Response Time')
+        st.dataframe(max_time.head(top_n).reset_index().rename(columns={'response_time': 'max_response_time_ms'}))
 
-        st.subheader('Top 10 APIs by Max Response Size')
-        st.dataframe(max_size.head(10).reset_index().rename(columns={'response_size': 'max_response_size_bytes'}))
+        st.subheader(f'Top {top_n} APIs by Max Response Size')
+        st.dataframe(max_size.head(top_n).reset_index().rename(columns={'response_size': 'max_response_size_bytes'}))
 
-        st.subheader('Top 10 APIs by Most Calls')
-        api_counts = df['api'].value_counts().head(10)
+        st.subheader(f'Top {top_n} APIs by Most Calls')
+        api_counts = df['api'].value_counts().head(top_n)
         st.bar_chart(api_counts)
         st.dataframe(api_counts.reset_index().rename(columns={'index': 'api', 'api': 'call_count'})) 
