@@ -1,0 +1,126 @@
+import org.apache.hc.client5.http.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.classic.HttpClientBuilder;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.routing.DefaultProxyRoutePlanner;
+import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.http.HttpEntity;
+import org.apache.hc.core5.http.io.entity.StringEntity;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.ClassicHttpResponse;
+import org.apache.hc.core5.http.io.HttpClientResponseHandler;
+import org.apache.hc.core5.ssl.SSLContextBuilder;
+import org.apache.hc.core5.ssl.SSLContexts;
+import org.apache.hc.core5.ssl.SSLHostnameVerifier;
+import org.apache.hc.core5.ssl.NoopHostnameVerifier;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import java.io.IOException;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+
+public class CXmlConnectionServiceImpl {
+
+    @Value("${connection.isProxySetupRequired}")
+    private boolean isProxySetupRequired;
+
+    @Value("${connection.proxy.host}")
+    private String proxyHost;
+
+    @Value("${connection.proxy.port}")
+    private int proxyPort;
+
+    /**
+     * To get CloseableHttpClient.
+     *
+     * @param protocol        the communication protocol (SSL, TLS etc) to be used
+     *                        for HTTPS communication with Punchout vendor.
+     * @param isProxyRequired
+     * @return
+     * @throws CXmlSecurityException
+     */
+    private CloseableHttpClient getHttpsClient(String protocol, boolean isProxyRequired) throws CXmlSecurityException {
+        HttpClientBuilder httpClientBuilder = HttpClients.custom();
+
+        if (isProxyRequired) {
+            // Proxy setup is required in local development environment
+            httpClientBuilder.setRoutePlanner(getProxyRoutePlanner(proxyHost, proxyPort));
+        }
+
+        try {
+            // Set SSLContext
+            httpClientBuilder.setSSLContext(getSSLContext(protocol));
+        } catch (KeyManagementException | NoSuchAlgorithmException | KeyStoreException exception) {
+            throw new CXmlSecurityException(exception);
+        }
+
+        // Turns hostname verification off. This implementation is a no-op, and never
+        // throws the SSLException.
+        // FIXME: This has to be verified by a domain SME to confirm the security of
+        // production application
+        httpClientBuilder.setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE);
+
+        return httpClientBuilder.build();
+    }
+
+    /**
+     * To setup Default Proxy Route Planner. This setup is required in local to
+     * access external site from TCS office PC.
+     *
+     * @param host IP of the proxy server
+     * @param port Port number of proxy server
+     * @return Default Proxy Route Planner
+     */
+    private DefaultProxyRoutePlanner getProxyRoutePlanner(String host, int port) {
+        // Provide details of Proxy Server
+        HttpHost proxy = new HttpHost(host, port);
+        return new DefaultProxyRoutePlanner(proxy);
+    }
+
+   
+    private HttpPost prepareHttpPost(String url, HttpEntity httpEntity) {
+        HttpPost httpPost = new HttpPost(url);
+        httpPost.setEntity(httpEntity);
+        return httpPost;
+    }
+
+
+    private HttpEntity getHttpEntity(String xmlContent) {
+        return new StringEntity(xmlContent, ContentType.TEXT_XML);
+    }
+
+ 
+    private HttpClientResponseHandler<String> getCXmlResponseHandler() {
+        return new HttpClientResponseHandler<String>() {
+            @Override
+            public String handleResponse(ClassicHttpResponse response) throws IOException {
+                // If Status is OK, retrieve the response received
+                int statusCode = response.getCode();
+
+                if (statusCode == CXML_STATUS_CODE_OK) {
+                    HttpEntity entity = response.getEntity();
+
+                    return entity != null ? EntityUtils.toString(entity) : null;
+                } else {
+                    String errorMessage = "Unexpected response status: " + statusCode;
+                    throw new IOException(errorMessage);
+                }
+            }
+        };
+    }
+
+    public String doPostRawCXml(String url, String protocol, String cXml) throws CXmlSecurityException, IOException {
+        String responseBody = EMPTY_CXML;
+
+        try (CloseableHttpClient closeableHttpClient = getHttpsClient(protocol, isProxySetupRequired)) {
+            HttpEntity httpEntity = getHttpEntity(cXml);
+            HttpPost httpPost = prepareHttpPost(url, httpEntity);
+
+            // Retrieve response
+            responseBody = closeableHttpClient.execute(httpPost, getCXmlResponseHandler());
+        }
+
+        return responseBody;
+    }
+
+}
